@@ -1,0 +1,364 @@
+1.
+sudo adduser hadoop2
+password: !ykeH3vFVs
+
+su - hadoop2
+
+2.
+sudo vim /etc/hosts
+insert:
+192.168.1.98 team-24-jn
+192.168.1.99 team-24-nn
+192.168.1.100 team-24-dn-0
+192.168.1.101 team-24-dn-1
+
+3.
+ssh-keygen
+cat /home/hadoop2/.ssh/id_ed25519.pub
+
+save the key into txt
+
+4. 
+do it on all machines
+
+5. 
+go back to jumpnode, put all the keys into ~/.ssh/authorized_keys like this
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBn3KmC1mRcQHePodmhMcPDRGnNoTbYG0WyuZpt/pqQX
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGUTytln6X/Be+I1mHTc/ToKZP/scyjZ8AXWj5aooHG4
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHGwBhVgFKdPnKYeVfrvlhooxs5vFCKC3uKHgy4tHvnT
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJtAPADDll5N1OU8TKodwR0ZmHfsTb4G1ISyDk9b7jV1
+
+6.
+run
+scp /home/hadoop2/.ssh/authorized_keys team-24-nn:/home/hadoop2/.ssh/authorized_keys
+scp /home/hadoop2/.ssh/authorized_keys team-24-dn-0:/home/hadoop2/.ssh/authorized_keys
+scp /home/hadoop2/.ssh/authorized_keys team-24-dn-1:/home/hadoop2/.ssh/authorized_keys
+
+7. exit from hadoop2 to team
+under team 
+
+sudo apt install python3.12-venv
+
+8.
+sudo -i -u hadoop2
+under hadoop2
+
+python3 -m venv venv
+source venv/bin/activate
+pip install ansible
+mkdir ansible_quickstart && cd ansible_quickstart
+
+vim hosts.ini
+[myhosts]
+node1 ansible_host=team-24-jn ansible_user=hadoop2
+node2 ansible_host=team-24-nn ansible_user=hadoop2
+node3 ansible_host=team-24-dn-0 ansible_user=hadoop2
+node4 ansible_host=team-24-dn-1 ansible_user=hadoop2
+
+9.
+create the following file
+-------------------
+copy_hadoop_to_hosts.yml
+
+- name: Deploy Hadoop archive to all hosts
+  hosts: node2,node3,node4
+  gather_facts: no
+  vars:
+    hadoop_archive: "/home/hadoop2/hadoop-3.4.0.tar.gz"
+
+  tasks:
+    - name: Distribute Hadoop archive to all other hosts
+      copy:
+        src: "{{ hadoop_archive }}"
+        dest: "{{ hadoop_archive }}"
+
+    - name: Unpack Hadoop on all hosts
+      command: "tar -xvzf {{ hadoop_archive }}"
+
+
+10.
+run
+ansible-playbook -i hosts.ini copy_hadoop_to_hosts.yml -v
+
+------------------
+add env vars:
+write_env_vars.yml
+ansible-playbook -i hosts.ini write_env_vars.yml -v
+- name: Add hadoop into vars
+  hosts: node2,node3,node4
+  gather_facts: no
+
+  tasks:
+    - name: Hadoop_home
+      ansible.builtin.shell: 'echo "export HADOOP_HOME=/home/hadoop2/hadoop-3.4.0" >> /home/hadoop2/.profile'
+    - name: Java_home
+      ansible.builtin.shell: 'echo "export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64" >> /home/hadoop2/.profile'
+    - name: Bins
+      ansible.builtin.shell: "echo 'export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin' >> /home/hadoop2/.profile"
+
+
+11.
+create the following file
+----------------------
+add_java_home.yml
+
+- name: Add java_home into hadoop-env.sh
+  hosts: node2,node3,node4
+  gather_facts: no
+
+  tasks:
+    - name: Java_home
+      ansible.builtin.shell: 'echo "export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64" >> hadoop-3.4.0/etc/hadoop/hadoop-env.sh'
+
+
+12.
+run
+ansible-playbook -i hosts.ini add_java_home.yml -v
+
+13.
+create the following files
+---------------------------
+core-site.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+        <property>
+                <name>fs.defaultFS</name>
+                <value>hdfs://team-24-nn:9000</value>
+        </property>
+</configuration>
+
+------------
+hdfs-site.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+	<property>
+        	<name>dfs.replication</name>
+                <value>3</value>
+        </property>
+</configuration>
+
+-----------------------
+workers
+
+team-24-nn
+team-24-dn-0
+team-24-dn-1
+
+---------------
+mapred-site.xml
+
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+	<property>
+                <name>mapreduce.framework.name</name>
+                <value>yarn</value>
+        </property>
+        <property>
+                <name>mapreduce.application.classpath</name>
+                <value>$HADOOP_HOME/share/hadoop/mapreduce/*:$HADOOP_HOME/share/hadoop/mapreduce/lib/*</value>
+        </property>
+</configuration>
+
+----------------
+yarn-site.xml
+
+<?xml version="1.0"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+<configuration>
+
+<!-- Site specific YARN configuration properties -->
+	<property>
+                <name>yarn.nodemanager.aux-services</name>
+                <value>mapreduce_shuffle</value>
+        </property>
+        <property>
+                <name>yarn.nodemanager.env-whitelist</name>
+                <value>JAVA_HOME,HADOOP_COMMON_HOME,HADOOP_CONF_DIR,HADOOP_HDFS_HOME,HADOOP_HOME,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,PATH,LANG,TZ,HADOOP_MAPRED_HOME</value>
+        </property>
+
+</configuration>
+
+--------------------
+set_up_hadoop_conf.yml
+
+- name: Deploy Hadoop conf to all hosts
+  hosts: node2,node3,node4
+  gather_facts: no
+  vars:
+    core_site_src: "/home/hadoop2/ansible_quickstart/core-site.xml"
+    core_site_dest: "/home/hadoop2/hadoop-3.4.0/etc/hadoop/core-site.xml"
+    hdfs_site_src: "/home/hadoop2/ansible_quickstart/hdfs-site.xml"
+    hdfs_site_dest: "/home/hadoop2/hadoop-3.4.0/etc/hadoop/hdfs-site.xml"
+    workers_src: "/home/hadoop2/ansible_quickstart/workers"
+    workers_dest: "/home/hadoop2/hadoop-3.4.0/etc/hadoop/workers"
+    mapred_site_src: "/home/hadoop2/ansible_quickstart/mapred-site.xml"
+    mapred_site_dest: "/home/hadoop2/hadoop-3.4.0/etc/hadoop/mapred-site.xml"
+    yarn_site_src: "/home/hadoop2/ansible_quickstart/yarn-site.xml"
+    yarn_site_dest: "/home/hadoop2/hadoop-3.4.0/etc/hadoop/yarn-site.xml"
+
+  tasks:
+    - name: Distribute core-site.xml to all other hosts
+      copy:
+        src: "{{ core_site_src }}"
+        dest: "{{ core_site_dest }}"
+    - name: Distribute hdfs-site.xml to all other hosts
+      copy:
+        src: "{{ hdfs_site_src}}"
+        dest: "{{ hdfs_site_dest }}"
+    - name: Distribute workers to all other hosts
+      copy:
+        src: "{{ workers_src}}"
+        dest: "{{ workers_dest }}"
+    - name: Distribute mapred-site.xml to all other hosts
+      copy:
+        src: "{{ mapred_site_src}}"
+        dest: "{{ mapred_site_dest }}"
+    - name: Distribute yarn-site.xml to all other hosts
+      copy:
+        src: "{{ yarn_site_src}}"
+        dest: "{{ yarn_site_dest }}"
+--------------------
+
+14.
+run
+ansible-playbook -i hosts.ini set_up_hadoop_conf.yml -v
+
+15.
+go to namenode
+ssh team-24-nn
+
+go to hadoop dir
+cd hadoop-3.4.0
+
+
+16.
+run
+bin/hdfs namenode -format
+
+
+17.
+go back to jumpnode
+exit
+exit hadoop2
+exit
+
+18.
+run commands
+sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/nn
+sudo vim /etc/nginx/sites-available/nn
+
+19.
+put the line 
+proxy_pass http://team-24-nn:9870;
+into location section, comment the previous one
+
+20.
+run command
+sudo vim /etc/nginx/sites-enabled/dh
+put the line 
+proxy_pass http://team-24-nn:19888;
+into location section, comment the previous one
+
+21.
+run command
+sudo vim /etc/nginx/sites-enabled/ya
+put the line 
+proxy_pass http://team-24-nn:8088;
+into location section, comment the previous one
+
+22. 
+run
+sudo systemctl start nginx/ sudo systemctl reload nginx
+run
+
+
+23.
+run
+sudo -i -u hadoop2
+run
+ssh team-24-nn
+go to hadoop dir
+cd hadoop-3.4.0
+
+
+to start cluster:
+source ~/.profile
+sbin/start-dfs.sh
+sbin/start-yarn.sh
+mapred --daemon start historyserver
+
+
+to stop cluster:
+mapred --daemon stop historyserver
+sbin/stop-yarn.sh
+sbin/stop-dfs.sh
+
+
+
+
+
